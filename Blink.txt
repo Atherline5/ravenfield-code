@@ -1,0 +1,251 @@
+﻿--ATHERLINE'S BLINK(DISHONORED)
+behaviour("Blink")
+	local TargetPosition
+	local particleSystem
+	local particleSystem1
+	local particleSystem2
+	local BlinkTimeCover
+	local DownPosition
+	local CancelBlink
+	local PlayerPos
+	local Paused
+	local BlinkHoldSlowmo
+	local Capson
+	local blinkcounter
+	local manacharge
+	local mana
+
+	function Blink:Start()
+		print("______________________________________________________________________________")
+		print("Dishonored Blink By Atherline5, with a bit of help from Chryses & SteelRaven")
+		print("--------------------------------CONTROLS--------------------------------")
+		print("Hold 'Fire' to aim blink, then release to blink. To Cancel, press '`' key")
+		print("left of '1' key.")
+		print("Press 'H' to toggle slow time on hold blink, this won't be Toggled if CAPS is")
+		print("on.")
+		print("______________________________________________________________________________")
+		self.Paused = false
+		self.particleSystem = GameObject.Instantiate(self.targets.particleTarget)
+		self.particleSystem1 = GameObject.Instantiate(self.targets.particleTarget1)
+		self.particleSystem2 = GameObject.Instantiate(self.targets.particleTarget2)
+		self.BlinkTimeCover = GameObject.Instantiate(self.targets.blinkhud)
+		self.particleSystem.SetActive(false)
+		self.particleSystem1.SetActive(false)
+		self.BlinkTimeCover.SetActive(false)
+		self.particleSystem2.GetComponent(ParticleSystem).Stop()
+		self.BlinkHoldSlowmo = false
+		self.Capson = false
+		self.mana = 100.0
+		self.manacharge = false
+	end
+
+	--MANA RECHARGE
+	function Blink:Manachecker(mana)
+		return function()
+			coroutine.yield(WaitForSeconds(1))
+			mana = mana + 1
+		end
+	end
+
+	--HIDE INDECTOR FUNCTION
+	function HideIndecator()
+		self.particleSystem.SetActive(false)
+		self.particleSystem1.SetActive(false)
+		Player.actor.activeWeapon.animator.SetBool("hold", false)
+	end
+
+	--SHOW INDECATOR
+	function ShowIndecator()
+		self.particleSystem.SetActive(true)
+		self.particleSystem1.SetActive(true)
+		Player.actor.activeWeapon.animator.SetBool("hold", true)
+	end
+
+	function UnpauseBlink()
+		if self.BlinkHoldSlowmo then 
+			self.BlinkTimeCover.SetActive(false)
+			if not self.Capson then
+				Time.timeScale = 1.0
+			end
+		end	
+	end
+
+	function Blink:Update()
+		self.PlayerPos = PlayerCamera.activeCamera.main.transform.position
+
+		-- HOLD SET LOCATION
+		local ray = Ray(self.PlayerPos + PlayerCamera.activeCamera.main.transform.forward, PlayerCamera.activeCamera.main.transform.forward)
+		local raycast = Physics.Raycast(ray, 50, RaycastTarget.ProjectileHit)
+
+		if raycast ~= nil then
+			--Land Teleport
+			self.particleSystem.transform.position = raycast.point - PlayerCamera.activeCamera.main.transform.forward
+			TargetPosition = raycast.point	
+		else
+			TargetPosition = self.PlayerPos + PlayerCamera.activeCamera.main.transform.forward * 50;
+			--Air Teleport
+			self.particleSystem.transform.position = TargetPosition
+		end
+		
+		--HOLD GROUND LOCATOR
+		local ray1 = Ray(Vector3(TargetPosition.x, TargetPosition.y + 0.5, TargetPosition.z), Vector3.down)
+		local raycast1 = Physics.Raycast(ray1, 500, RaycastTarget.ProjectileHit)
+
+		if raycast1 ~= nil then
+			DownPosition = raycast1.point
+			self.particleSystem1.transform.position = DownPosition		
+		end
+
+		--PAUSED CHECK
+		if GameManager.isPaused == true then
+			self.Paused = true
+			self.particleSystem.SetActive(false)
+			self.particleSystem1.SetActive(false)
+			Player.actor.activeWeapon.animator.SetBool("hold", false)
+			self.BlinkTimeCover.SetActive(false)
+			self.CancelBlink = true
+			else
+			self.Paused = false
+		end
+
+		--DEATH DETECTOR
+		if Player.actor.isDead then
+			self.CancelBlink = true
+			GameObject.Destroy(self.particleSystem)
+			GameObject.Destroy(self.particleSystem1)
+			GameObject.Destroy(self.BlinkTimeCover)
+			self.UnpauseBlink()
+		end
+
+		--CHECK IF SWIMMING OR SEATED TO PREVENT INDECATOR FORM NOT DESPAWING 
+		if Player.actor.isFallenOver or Player.actor.isSwimming or Player.actor.isSeated then
+			self.CancelBlink = true
+			self.HideIndecator()
+			self.UnpauseBlink()
+		end
+
+		--TOGGLE BLINK
+		if Input.GetKeyDown(KeyCode.H) then
+			if self.BlinkHoldSlowmo then
+				self.BlinkHoldSlowmo = false
+				self.UnpauseBlink()
+			else 
+				self.BlinkHoldSlowmo = true 
+			end
+		end
+
+		--TOGGLE CAPS
+		if Input.GetKeyDown(KeyCode.CapsLock) then
+			if self.Capson then
+				self.Capson = false
+			else 
+				self.Capson = true
+			end
+		end
+
+		--SPRINT CHECK
+
+		if Input.GetKeyDown(KeyCode.W) or Input.GetKeyDown(KeyCode.A) or Input.GetKeyDown(KeyCode.S) or Input.GetKeyDown(KeyCode.D) and Player.actor.isSprinting then
+			Player.actor.activeWeapon.animator.SetBool("tuck", true)
+		end
+
+		if Input.GetKeyUp(KeyCode.W) and Input.GetKeyUp(KeyCode.A) and Input.GetKeyUp(KeyCode.S) and Input.GetKeyUp(KeyCode.D) and Player.actor.isSprinting then
+			Player.actor.activeWeapon.animator.SetBool("tuck", false)
+		end
+
+		--HOLD/SPAWN INDECATOR
+		if Input.GetKeyDown(KeyCode.Mouse0) and not Player.actor.isDead and not Player.actor.isFallenOver and not Player.actor.isSwimming and not Player.actor.isSeated and not self.Paused then
+			if self.CancelBlink then
+				self.CancelBlink = false
+			end
+			ShowIndecator()
+			if self.BlinkHoldSlowmo then --SLOWMO
+				self.BlinkTimeCover.SetActive(true)
+				if self.Capson then
+					Overlay.ShowMessage("<size=5><b><color=red>CAPS IS ON</color></b></size>", 0.4)
+				else
+					Time.timeScale = 0.2
+				end
+			end
+		end
+
+		--CANCEL BLINK
+		if Input.GetKeyUp(KeyCode.BackQuote) and not Player.actor.isDead and not Player.actor.isFallenOver and not Player.actor.isSwimming and not Player.actor.isSeated and not self.Paused then
+			Overlay.ShowMessage("<size=5><b><color=red>BLINK CANCELLED</color></b></size>", 0.4)
+			HideIndecator()
+			self.CancelBlink = true
+			if self.BlinkHoldSlowmo then --NO SLOWMO
+				if not self.Capson then
+					Time.timeScale = 1.0
+				end
+			end
+			self.BlinkTimeCover.SetActive(false)
+		end
+
+		--BLINK TP
+		if Input.GetKeyUp(KeyCode.Mouse0) and not Player.actor.isDead and not Player.actor.isFallenOver and not Player.actor.isSwimming and not Player.actor.isSeated and not self.Paused then
+			if not self.CancelBlink then
+				local SelectDistance
+				local LowestLadValue = 0.0
+				self.SelectDistance = 0.0
+				Player.actor.activeWeapon.animator.SetTrigger("blink")
+				Player.actor.activeWeapon.animator.SetBool("hold", false)
+				self.particleSystem.SetActive(false)
+				self.particleSystem1.SetActive(false)
+				local pos1 = Vector3(TargetPosition.x, TargetPosition.y + 0.2, TargetPosition.z)
+				Player.actor.transform.parent.position = pos1
+				self.particleSystem2.transform.position = Player.actor.transform.parent.position
+				self.particleSystem2.GetComponent(ParticleSystem).Play()
+				if self.mana > 25.0 then 
+					self.mana = self.mana - 25.0
+					self.targets.blinkcounter.gameObject.GetComponent(Text).text = self.mana
+				else 
+					self.targets.blinkcounter.gameObject.GetComponent(Text).text = "NO MANA"
+					self.manacharge = true
+					--self.script.StartCoroutine(Manachecker)
+				end
+				--CAPS SLOWMO CHECK
+				if self.BlinkHoldSlowmo then
+					self.BlinkTimeCover.SetActive(false)
+					if not self.Capson then
+						Time.timeScale = 1.0
+					end
+				end
+				--Blink Assault
+				for i,act in pairs(ActorManager.actors) do
+					self.SelectDistance = ActorManager.ActorDistanceToPlayer(act)
+					print("Actor")
+					if self.SelectDistance <= 2.0 and not act.isPlayer then
+						print(tostring(self.SelectDistance))
+						act.FallOver()
+						act.Damage(Player.actor, 30.0, 1700.0, true, true, Player.actor.transform.parent.position, Player.actor.facingDirection, Vector3(0, 1, 8))
+					end
+				end
+				self.CancelBlink = false
+				--Ladder
+				for i,iladder in pairs(ActorManager.ladders) do
+					local closestLadder = LineSegmentVsPointClosest(iladder.bottomPosition, iladder.topPosition, Player.actor.transform.parent.position).point
+					self.LowestLadValue = Vector3.Distance(Player.actor.Transform.parent.position, self.closestLadder)
+					print(tostring(self.LowestLadValue))
+					if self.LowestLadValue <= 4.0 then
+						print("Ladder")
+						print(tostring(iladder.bottomPosition))
+						Player.actor.GetOnLadder(iladder)
+					end
+				end
+			else
+				self.CancelBlink = false
+			end
+		end
+
+		--MANA CHARGE
+		if self.manacharge then 
+			if self.mana < 100 then
+				self.script.StartCoroutine(self:Manachecker(mana))
+				self.targets.blinkcounter.gameObject.GetComponent(Text).text = self.mana
+			else
+				self.manacharge = false
+				return
+			end
+		end
+	end
