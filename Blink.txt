@@ -115,7 +115,7 @@ behaviour("Blink")
 			Player.actor.activeWeapon.animator.SetBool("hold", true)
 		end
 
-		function UnpauseBlink()(Works only in UPDATE())
+		function UnpauseBlink() --(Works only in UPDATE())
 			if self.BlinkHoldSlowmo then 
 				self.BlinkTimeCover.SetActive(false)
 				if not self.Capson then
