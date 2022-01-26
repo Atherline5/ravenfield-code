@@ -1,0 +1,45 @@
+if self.gameObject.activeSelf and not self.lock then
+		--print("Spawn new  bot")
+		self.newact = ActorManager.CreateAIActor(self.TeamSpw)
+		self.newact.onTakeDamage.AddListener(self,"onTakeDamage")
+		self.newact.SpawnAt(self.gameObject.transform.position,self.newact.transform.rotation)
+		self.newact.name = "A.I. Unit"
+		self.newact.aiController.ignoreFovCheck = true
+		self.newact.RemoveWeapon(0)
+		self.newact.RemoveWeapon(1)
+		self.newact.RemoveWeapon(2)
+		self.newact.RemoveWeapon(3)
+		self.newact.RemoveWeapon(4)
+		self.newact.isRendered = false
+		self.newact.aiController.canJoinPlayerSquad = true
+		self.newact.maxHealth = 1000
+		self.newact.health = 1000
+		local closdis = 100
+		for i,act in pairs(ActorManager.actors) do
+			if act.team == self.TeamSpw then
+				--print(act.activeWeapon.weaponEntry.name)
+				--print(self.gameObject.GetComponent(Vehicle).name .. " (Weapon)")
+				--print(act.activeWeapon.weaponEntry.name == self.gameObject.GetComponent(Vehicle).name)
+				if act.activeWeapon.weaponEntry ~= nil then
+					if act.activeWeapon.weaponEntry.name == self.gameObject.GetComponent(Vehicle).name or act.activeWeapon.weaponEntry.name == self.gameObject.GetComponent(Vehicle).name .. " (Infinite)" then
+						--print("Com")
+						if ActorManager.ActorsDistance(self.newact,act) < closdis then
+							closdis = ActorManager.ActorsDistance(self.newact,act)
+							self.squlead = act
+							self.squlead.squad.AddMember(self.newact)
+							--print("Tele")
+							self.squlead.EnterVehicle(self.gameObject.GetComponent(Vehicle))
+							self.squlead.ExitVehicle()
+							self.newact.TeleportTo(self.gameObject.transform.position, Quaternion.identity)
+							self.newact.EnterVehicle(self.gameObject.GetComponent(Vehicle))
+							self.newact.ExitVehicle()
+							self.newact.EnterVehicle(self.gameObject.GetComponent(Vehicle))
+							self.newact.isRendered = false
+							self.lock = true
+							print("Fin setup")
+						end
+					end
+				end
+			end
+		end
+	end
