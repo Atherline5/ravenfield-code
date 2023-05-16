@@ -1,4 +1,4 @@
--- autoturret
+-- heavy modded
 behaviour("AutoTurret")
 
 function AutoTurret:Start()
@@ -19,7 +19,6 @@ function AutoTurret:Start()
     self.friendlyFire = false
 
     self.turretowner = Player.actor
-
 
     -- DO NOT CHANGE THESE VARIABLES
     --DATA CONTAINER Customisable
@@ -47,19 +46,13 @@ function AutoTurret:Start()
     self.projectileGravity = self.targets.projectilePrefab.GetComponent(Projectile).gravityMultiplier
     self.proj1grav = self.targets.projectilePrefab.GetComponent(Projectile).gravityMultiplier
     if self.targets.groundproj ~= nil then
-        self.proj2grav = self.targets.groundproj.GetComponent(Projectile).gravityMultiplier
-    else
-        self.proj2grav = 1
+        self.proj2grav = self.targets.groundproj and self.targets.groundproj.GetComponent(Projectile).gravityMultiplier or 1
     end
     --print(self.proj1grav)
     --print(self.proj2grav)
     if self.targetVehicles then
         local crb = self.gameObject.GetComponent(Rigidbody)
-        if crb == nil then
-            self.currentVehicleVel = Vector3.zero
-        else
-            self.currentVehicleVel = self.gameObject.GetComponent(Rigidbody).velocity
-        end
+        self.currentVehicleVel = crb and crb.velocity or Vector3.zero
     end
     GameEvents.onActorDied.AddListener(self, "onActorDeath")
     self.script.StartCoroutine("turretstart")
@@ -72,20 +65,12 @@ function AutoTurret:OnActorDeath(actor)
 end
 
 function AutoTurret:turretstart()
-    --print("callstart turn")
-    --print(self.rotateableTurretGun.transform.localRotation.eulerAngles)
-    --print("startcheck")
-    if self.rotateableTurretGun.transform.localRotation.eulerAngles.x > 90 then
+    while self.rotateableTurretGun.transform.localRotation.eulerAngles.x > 90 do
         self.rotateableTurretGun.transform.localRotation = Quaternion.RotateTowards(
             self.rotateableTurretGun.transform.localRotation,
             Quaternion.Euler(Vector3(self.rotateableTurretGun.transform.localRotation.eulerAngles.x + 90, 0, 0)),
             Time.deltaTime * 180)
         coroutine.yield(WaitForSeconds(0.01))
-        --print(Time.time)
-        self.script.StartCoroutine("turretstart")
-    else
-        --print("stop")
-        return
     end
 end
 
@@ -103,6 +88,7 @@ end
 function AutoTurret:Shoot()
     self.isShooting = true
     local totaltime = self.targetForSeconds / self.delayBetweenShots
+    print("priuntstart")
     for i = 1, totaltime, 1 do
         if self.currentTarget == nil or self.currentTarget.isDead then
             self.hasTarget = false
@@ -207,37 +193,31 @@ function AutoTurret:EradicateActor(target)
             self.isShooting = false
             return
         end
-        if target ~= nil and not self.isShooting then
-            --print("targ")
-            --print(target)
-            self.currentTarget = target
-            if self.targetVehicles and target.activeVehicle ~= nil then
-                --	print("<color=orange>New Vehicle Target: </color>" .. target.gameObject.GetComponent(Vehicle).name)
-                self.targetVehicleRigidbody = target.activeVehicle.gameObject.GetComponentInChildren(Rigidbody)
-                --print(target.gameObject.GetComponentInChildren(Rigidbody))
-                if self.targetVehicleRigidbody == nil then
-                    self.hasTarget = false
-                    self.isShooting = false
-                    --print("Target vehicle doesn't have a rigidbody")
-                    return
-                else
-                    self.script.StartCoroutine("Shoot")
-                    --print("shoot v")
-                    return
-                end
-                --print("triggered shooting")
-            elseif self.targetActors and target.activeVehicle == nil then
-                self.script.StartCoroutine("Shoot")
-                --print("shoot A")
-            else
-                print(">>>???")
-            end
-            -- if 	self.isShooting == false then
-            -- end
-        else
-            --print("Target is already dead?")
+
+        if target == nil then
             self.isShooting = false
             self.hasTarget = false
+            print("Target is already dead")
+            return
+        end
+
+        self.currentTarget = target
+
+        if self.targetVehicles and target.activeVehicle ~= nil then
+            self.targetVehicleRigidbody = target.activeVehicle.gameObject:GetComponentInChildren(Rigidbody)
+            if self.targetVehicleRigidbody == nil then
+                self.hasTarget = false
+                self.isShooting = false
+                return
+            else
+                self.script:StartCoroutine("Shoot")
+                return
+            end
+        elseif self.targetActors and target.activeVehicle == nil then
+            self.script:StartCoroutine("Shoot")
+        else
+            print("Invalid target type")
+            return
         end
     end
 end
