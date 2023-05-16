@@ -1,4 +1,3 @@
--- heavy modded
 behaviour("AutoTurret")
 
 function AutoTurret:Start()
