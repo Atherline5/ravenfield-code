@@ -46,7 +46,8 @@ function AutoTurret:Start()
     self.projectileGravity = self.targets.projectilePrefab.GetComponent(Projectile).gravityMultiplier
     self.proj1grav = self.targets.projectilePrefab.GetComponent(Projectile).gravityMultiplier
     if self.targets.groundproj ~= nil then
-        self.proj2grav = self.targets.groundproj and self.targets.groundproj.GetComponent(Projectile).gravityMultiplier or 1
+        self.proj2grav = self.targets.groundproj and self.targets.groundproj.GetComponent(Projectile).gravityMultiplier or
+            1
     end
     --print(self.proj1grav)
     --print(self.proj2grav)
@@ -196,9 +197,9 @@ end
 function AutoTurret:EradicateActor(target)
     return function()
         if self.currentTarget ~= nil and self.currentTarget.gameObject == target.gameObject then
-        self.hasTarget = false
-        self.isShooting = false
-        return
+            self.hasTarget = false
+            self.isShooting = false
+            return
         end
         if target ~= nil then
             self.currentTarget = target
@@ -217,14 +218,14 @@ function AutoTurret:EradicateActor(target)
             end
             if self.hasTarget then
                 self.script.StartCoroutine("Shoot")
-                end
-            else
-                self.isShooting = false
-                self.hasTarget = false
-                print("Target is already dead")
             end
+        else
+            self.isShooting = false
+            self.hasTarget = false
+            print("Target is already dead")
         end
     end
+end
 
 function AutoTurret:tablelength(T)
     local count = 0
@@ -396,7 +397,7 @@ function AutoTurret:Update()
                     (self.projectileSpeed))
                 if calcTraj1 ~= 0 then
                     local trajectoryHeight = Mathf.Tan(calcTraj1 * Mathf.Deg2Rad) *
-                    Vector3.Distance(self.rotateableTurret.transform.position, self.currentTarget.position)
+                        Vector3.Distance(self.rotateableTurret.transform.position, self.currentTarget.position)
                     if self.currentTarget.isParachuteDeployed then
                         trajectoryHeight = Vector3.Distance(self.rotateableTurretGun.transform.position,
                             self.currentTarget.position)
