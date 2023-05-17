@@ -34,6 +34,7 @@ function AutoTurret:Start()
     self.WaitBetweenNewTargetAcquire = self.gameObject.GetComponent(DataContainer).GetInt("waittillfire")
     self.groundround = self.targets.groundproj
     --Script Variables only
+    self.TurretStarted = false
     self.targetVehicleRigidbody = nil
     self.currentTarget = nil
     self.hasTarget = false -- Do not change this
@@ -78,6 +79,7 @@ function AutoTurret:turretstart()
         coroutine.yield(WaitForSeconds(0.01))
         self.script.StartCoroutine("turretstart")
     else
+        self.TurretStarted = true
         return
     end
 end
@@ -138,8 +140,8 @@ function AutoTurret:Shoot()
         end
         coroutine.yield(WaitForSeconds(self.delayBetweenShots))
     end
-    self.isShooting = false
     coroutine.yield(WaitForSeconds(self.WaitBetweenNewTargetAcquire))
+     self.isShooting = false
     self.hasTarget = false
 end
 
@@ -235,23 +237,41 @@ function AutoTurret:tablelength(T)
     return count
 end
 
+function AutoTurret:HasClearLineOfSight(target)
+    -- Cast a ray from the turret to the target
+    local direction = target.transform.position - self.transform.position
+    local hitInfo = Physics.Raycast(self.transform.position, direction)
+    
+    -- Check if the ray hits any obstacles
+    if hitInfo.collider ~= nil then
+        -- A collider was hit, check if it's the target
+        if hitInfo.collider.gameObject == target.gameObject then
+            return true
+        else
+            return false
+        end
+    else
+        -- No collider was hit, line of sight is clear
+        return true
+    end
+end
+
 function AutoTurret:GetClosestActor(ActorsInRange)
     local bestTarget = null;
-    local closestDistanceSqr = Mathf.Infinity;
+    local closestDistanceSqr = Mathf.Infinity
     local currentPosition = self.scriptVar.gameObject.transform.position
+    local gunMuzzlePosition = self.GunMuzzle.transform.position
     for i, potentialTarget in ipairs(ActorsInRange) do
         local directionToTarget = potentialTarget.transform.position - currentPosition
-        local ray = Ray(self.GunMuzzle.transform.position, self.GunMuzzle.transform.forward)
-        local raycast = Physics.RaycastAll(ray, directionToTarget.magnitude - (directionToTarget.magnitude / 2) - 2,
-            RaycastTarget.Opaque)
-        local dSqrToTarget = directionToTarget.sqrMagnitude
-        local size = self:tablelength(raycast)
-        --Debug.DrawLine(self.rotateableTurretGun.transform.position, self.currentTarget.transform.position, Color.red)
-        --print("tagr?")
-        if size == 0 then
-            if dSqrToTarget < closestDistanceSqr then
-                closestDistanceSqr = dSqrToTarget;
-                bestTarget = potentialTarget;
+        local distanceSqrToTarget = directionToTarget.sqrMagnitude
+        -- Skip potentialTarget if the distance is greater than the closestDistanceSqr
+        if distanceSqrToTarget <= closestDistanceSqr then
+            local dSqrToTarget = directionToTarget.sqrMagnitude
+            -- Check for obstacles between the turret and the potential target
+            local hit = Physics.Linecast(gunMuzzlePosition, potentialTarget.transform.position, RaycastTarget.Opaque)
+            if not hit then
+                closestDistanceSqr = dSqrToTarget
+                bestTarget = potentialTarget
             end
         end
     end
@@ -353,172 +373,174 @@ function AutoTurret:Update()
     --print("-----")
     --print(self.hasTarget)
     --print(self.isShooting)
-    if self.hasTarget and not self.gameObject.GetComponent(Vehicle).isBurning and self.currentTarget ~= nil then
-        self.doingSentry = false
-        -- CHECK IF ACTOR IS VISABLE
-        -- print("lead")
-        local lookPos1
-        local lookPos2
-        local tar = self.currentTarget.transform.position - self.GunMuzzle.transform.position
-        if self.targetVehicles and self.currentTarget.activeVehicle ~= nil then
-            --print("vech1")
-            lookPos1 = self.currentTarget.transform.position - self.rotateableTurret.transform.position
-            lookPos2 = self.currentTarget.transform.position - self.rotateableTurretGun.transform.position
-        elseif self.targetActors and self.currentTarget.activeVehicle == nil then
-            --print("act1")
-            lookPos1 = self.currentTarget.position - self.rotateableTurret.transform.position
-            lookPos2 = self.currentTarget.position - self.rotateableTurretGun.transform.position
-            if self.currentTarget.isFallenOver then
-                --print("look1a")
-                lookPos1 = self.currentTarget.GetHumanoidTransformRagdoll(HumanBodyBones.Chest).position -
-                    self.rotateableTurretGun.transform.position
-                lookPos2 = self.currentTarget.GetHumanoidTransformRagdoll(HumanBodyBones.Chest).position -
-                    self.rotateableTurretGun.transform.position
-            end
-        end
-        local ray = Ray(self.GunMuzzle.transform.position, self.GunMuzzle.transform.forward)
-        local raycast = Physics.RaycastAll(ray, tar.magnitude - (tar.magnitude / 2) - 2, RaycastTarget.Default) -- Time.frameCount%5 == 0 addition for performance reason
-        local size = self:tablelength(raycast)
-        if size ~= 0 then
-            self.hasTarget = false
-            return
-        end
-        self.hasTarget = true
-        if self.gunLead then
+    if self.TurretStarted then
+        if self.hasTarget and not self.gameObject.GetComponent(Vehicle).isBurning and self.currentTarget ~= nil then
+            self.doingSentry = false
+            -- CHECK IF ACTOR IS VISABLE
             -- print("lead")
-            --print(self.currentTarget.activeVehicle)
-            if self.currentTarget.activeVehicle == nil and self.targetActors == true then
-                --if self.targetActors and self.currentTarget.activeVehicle == nil then
-                --print("act2")
-                self.interceptPointY = self:FirstOrderIntercept(self.rotateableTurret.transform.position,
-                    Vector3.zero, self.projectileSpeed, lookPos1, self.currentTarget.velocity)
-                local calcTraj1 = self:CalculateTrajectory(
-                    Vector3.Distance(self.rotateableTurret.transform.position, self.currentTarget.position),
-                    (self.projectileSpeed))
-                if calcTraj1 ~= 0 then
-                    local trajectoryHeight = Mathf.Tan(calcTraj1 * Mathf.Deg2Rad) *
-                        Vector3.Distance(self.rotateableTurret.transform.position, self.currentTarget.position)
-                    if self.currentTarget.isParachuteDeployed then
-                        trajectoryHeight = Vector3.Distance(self.rotateableTurretGun.transform.position,
-                            self.currentTarget.position)
-                    end
-                    self.interceptPointY = Vector3(self.interceptPointY.x, self.interceptPointY.y + trajectoryHeight,
-                        self.interceptPointY.z)
+            local lookPos1
+            local lookPos2
+            local tar = self.currentTarget.transform.position - self.GunMuzzle.transform.position
+            if self.targetVehicles and self.currentTarget.activeVehicle ~= nil then
+                --print("vech1")
+                lookPos1 = self.currentTarget.transform.position - self.rotateableTurret.transform.position
+                lookPos2 = self.currentTarget.transform.position - self.rotateableTurretGun.transform.position
+            elseif self.targetActors and self.currentTarget.activeVehicle == nil then
+                --print("act1")
+                lookPos1 = self.currentTarget.position - self.rotateableTurret.transform.position
+                lookPos2 = self.currentTarget.position - self.rotateableTurretGun.transform.position
+                if self.currentTarget.isFallenOver then
+                    --print("look1a")
+                    lookPos1 = self.currentTarget.GetHumanoidTransformRagdoll(HumanBodyBones.Chest).position -
+                        self.rotateableTurretGun.transform.position
+                    lookPos2 = self.currentTarget.GetHumanoidTransformRagdoll(HumanBodyBones.Chest).position -
+                        self.rotateableTurretGun.transform.position
                 end
-
-                local rotation1 = Quaternion.LookRotation(self.interceptPointY)
-                rotation1 = Quaternion.Euler(Vector3(0, rotation1.eulerAngles.y, 0) +
-                    Vector3(self.rotationOffsetTurretBase[1], self.rotationOffsetTurretBase[2],
-                        self.rotationOffsetTurretBase[3])) -- https:--answers.unity.com/questions/127765/how-to-restrict-quaternionslerp-to-the-y-axis.html
-                self.rotateableTurret.transform.rotation = Quaternion.Slerp(self.rotateableTurret.transform.rotation,
-                    rotation1, Time.deltaTime * self.turretBaseRotationSpeed)
-                self.interceptPointX = self:FirstOrderIntercept(self.rotateableTurretGun.transform.position,
-                    Vector3.zero, self.projectileSpeed, lookPos2, self.currentTarget.velocity)
-                local calcTraj2 = self:CalculateTrajectory(
-                    Vector3.Distance(self.rotateableTurretGun.transform.position, self.currentTarget.position),
-                    self.projectileSpeed)
-                if calcTraj2 ~= 0 then
-                    local trajectoryHeight = Mathf.Tan(calcTraj2 * Mathf.Deg2Rad) *
-                        Vector3.Distance(self.rotateableTurretGun.transform.position, self.currentTarget.position)
-                    self.interceptPointX = Vector3(self.interceptPointX.x, self.interceptPointX.y + trajectoryHeight,
-                        self.interceptPointX.z)
-                end
-            elseif self.targetVehicles == true and self.currentTarget.activeVehicle ~= nil and self.targetVehicleRigidbody ~= nil then
-                --[[print("vech2")
-                    print(self.rotateableTurret.transform.position)
-                    print(self.currentVehicleVel)
-                    print(self.projectileSpeed)
-                    print(lookPos1)
-                    print(self.targetVehicleRigidbody.velocity)
-                    print(self.interceptPointY)]]
-                --local vectvel = Vector3
-                --print(self.targetVehicleRigidbody.velocity)
-                self.interceptPointY = self:FirstOrderIntercept(self.rotateableTurret.transform.position,
-                    self.currentVehicleVel, self.projectileSpeed, lookPos1, self.targetVehicleRigidbody.velocity)
-                local calcTraj1 = self:CalculateTrajectory(
-                    Vector3.Distance(self.rotateableTurret.transform.position,
-                        self.currentTarget.activeVehicle.gameObject.transform.position), self.projectileSpeed)
-                if calcTraj1 ~= 0 then
-                    local trajectoryHeight = Mathf.Tan(calcTraj1 * Mathf.Deg2Rad) *
-                        Vector3.Distance(self.rotateableTurret.transform.position,
-                            self.currentTarget.activeVehicle.transform.position)
-                    self.interceptPointY = Vector3(self.interceptPointY.x, self.interceptPointY.y + trajectoryHeight,
-                        self.interceptPointY.z)
-                end
-                local rotation1 = Quaternion.LookRotation(self.interceptPointY)
-                rotation1 = Quaternion.Euler(Vector3(0, rotation1.eulerAngles.y, 0) +
-                    Vector3(self.rotationOffsetTurretBase[1], self.rotationOffsetTurretBase[2],
-                        self.rotationOffsetTurretBase[3])) -- https:--answers.unity.com/questions/127765/how-to-restrict-quaternionslerp-to-the-y-axis.html
-                self.rotateableTurret.transform.rotation = Quaternion.Slerp(self.rotateableTurret.transform.rotation,
-                    rotation1, Time.deltaTime * self.turretBaseRotationSpeed)
-                self.interceptPointX = self:FirstOrderIntercept(self.rotateableTurretGun.transform.position,
-                    self.currentVehicleVel, self.projectileSpeed, lookPos2, self.targetVehicleRigidbody.velocity)
-                local calcTraj = self:CalculateTrajectory(
-                    Vector3.Distance(self.rotateableTurretGun.transform.position,
-                        self.currentTarget.activeVehicle.gameObject.transform.position), self.projectileSpeed)
-                if calcTraj ~= 0 then
-                    local trajectoryHeight = Mathf.Tan(calcTraj * Mathf.Deg2Rad) *
-                        Vector3.Distance(self.rotateableTurretGun.transform.position,
-                            self.currentTarget.activeVehicle.gameObject.transform.position)
-                    self.interceptPointX = Vector3(self.interceptPointX.x, self.interceptPointX.y + trajectoryHeight,
-                        self.interceptPointX.z)
-                end
-                --Debug.DrawLine(self.rotateableTurretGun.transform.position, self.currentTarget.activeVehicle.transform.position, Color.red)
-                --Debug.DrawLine(self.rotateableTurretGun.transform.position, self.currentTarget.activeVehicle.transform.position + self.interceptPointX , Color.yellow)
             end
-            local rotation2 = Quaternion.LookRotation(self.interceptPointX)
-            local rotation3 = Quaternion.Euler(Vector3(rotation2.eulerAngles.x, 0, 0) +
-                Vector3(self.rotationOffsetTurretGun[1], self.rotationOffsetTurretGun[2],
-                    self.rotationOffsetTurretGun
-                    [3]))
-            self.rotateableTurretGun.transform.localRotation = Quaternion.Slerp(
-                self.rotateableTurretGun.transform.localRotation, rotation3, Time.deltaTime * self
-                .turretGunRotationSpeed)
-        else
-            local rotation1 = Quaternion.LookRotation(lookPos1)
-            rotation1 = Quaternion.Euler(Vector3(0, rotation1.eulerAngles.y, 0) +
-                Vector3(self.rotationOffsetTurretBase[1], self.rotationOffsetTurretBase[2],
-                    self.rotationOffsetTurretBase[3])) -- https:--answers.unity.com/questions/127765/how-to-restrict-quaternionslerp-to-the-y-axis.html
-            self.rotateableTurret.transform.rotation = Quaternion.Slerp(self.rotateableTurret.transform.rotation,
-                rotation1, Time.deltaTime * self.turretBaseRotationSpeed)
-            local rotation2 = Quaternion.LookRotation(lookPos2)
-            local rotation3 = Quaternion.Euler(Vector3(rotation2.eulerAngles.x, 0, 0) +
-                Vector3(self.rotationOffsetTurretGun[1], self.rotationOffsetTurretGun[2],
-                    self.rotationOffsetTurretGun
-                    [3]))
-            self.rotateableTurretGun.transform.localRotation = Quaternion.Slerp(
-                self.rotateableTurretGun.transform.localRotation, rotation3, Time.deltaTime * self
-                .turretGunRotationSpeed)
-        end
-        if raycast.point ~= nil then
-            local isinsightline = Vector3.Distance(raycast.point, self.currentTarget.transform.position)
-            if isinsightline > 20 then
+            local ray = Ray(self.GunMuzzle.transform.position, self.GunMuzzle.transform.forward)
+            local raycast = Physics.RaycastAll(ray, tar.magnitude - (tar.magnitude / 2) - 2, RaycastTarget.Default) -- Time.frameCount%5 == 0 addition for performance reason
+            local size = self:tablelength(raycast)
+            if size ~= 0 then
                 self.hasTarget = false
+                return
             end
-        end
-    else
-        if self.doingSentry == false and self.isShooting == false then
-            self.doingSentry = true
-            self.script.StartCoroutine("searchingAnimation")
-            if self.GunMuzzle.GetComponentInChildren(AudioSource) ~= nil then
-                --if not self.GunMuzzle.GetComponentInChildren(AudioSource).isPlaying then
-                self.GunMuzzle.GetComponentInChildren(AudioSource).Stop()
-                --end
+            self.hasTarget = true
+            if self.gunLead then
+                -- print("lead")
+                --print(self.currentTarget.activeVehicle)
+                if self.currentTarget.activeVehicle == nil and self.targetActors == true then
+                    --if self.targetActors and self.currentTarget.activeVehicle == nil then
+                    --print("act2")
+                    self.interceptPointY = self:FirstOrderIntercept(self.rotateableTurret.transform.position,
+                        Vector3.zero, self.projectileSpeed, lookPos1, self.currentTarget.velocity)
+                    local calcTraj1 = self:CalculateTrajectory(
+                        Vector3.Distance(self.rotateableTurret.transform.position, self.currentTarget.position),
+                        (self.projectileSpeed))
+                    if calcTraj1 ~= 0 then
+                        local trajectoryHeight = Mathf.Tan(calcTraj1 * Mathf.Deg2Rad) *
+                            Vector3.Distance(self.rotateableTurret.transform.position, self.currentTarget.position)
+                        if self.currentTarget.isParachuteDeployed then
+                            trajectoryHeight = Vector3.Distance(self.rotateableTurretGun.transform.position,
+                                self.currentTarget.position)
+                        end
+                        self.interceptPointY = Vector3(self.interceptPointY.x, self.interceptPointY.y + trajectoryHeight,
+                            self.interceptPointY.z)
+                    end
+
+                    local rotation1 = Quaternion.LookRotation(self.interceptPointY)
+                    rotation1 = Quaternion.Euler(Vector3(0, rotation1.eulerAngles.y, 0) +
+                        Vector3(self.rotationOffsetTurretBase[1], self.rotationOffsetTurretBase[2],
+                            self.rotationOffsetTurretBase[3])) -- https:--answers.unity.com/questions/127765/how-to-restrict-quaternionslerp-to-the-y-axis.html
+                    self.rotateableTurret.transform.rotation = Quaternion.Slerp(self.rotateableTurret.transform.rotation,
+                        rotation1, Time.deltaTime * self.turretBaseRotationSpeed)
+                    self.interceptPointX = self:FirstOrderIntercept(self.rotateableTurretGun.transform.position,
+                        Vector3.zero, self.projectileSpeed, lookPos2, self.currentTarget.velocity)
+                    local calcTraj2 = self:CalculateTrajectory(
+                        Vector3.Distance(self.rotateableTurretGun.transform.position, self.currentTarget.position),
+                        self.projectileSpeed)
+                    if calcTraj2 ~= 0 then
+                        local trajectoryHeight = Mathf.Tan(calcTraj2 * Mathf.Deg2Rad) *
+                            Vector3.Distance(self.rotateableTurretGun.transform.position, self.currentTarget.position)
+                        self.interceptPointX = Vector3(self.interceptPointX.x, self.interceptPointX.y + trajectoryHeight,
+                            self.interceptPointX.z)
+                    end
+                elseif self.targetVehicles == true and self.currentTarget.activeVehicle ~= nil and self.targetVehicleRigidbody ~= nil then
+                    --[[print("vech2")
+                        print(self.rotateableTurret.transform.position)
+                        print(self.currentVehicleVel)
+                        print(self.projectileSpeed)
+                        print(lookPos1)
+                        print(self.targetVehicleRigidbody.velocity)
+                        print(self.interceptPointY)]]
+                    --local vectvel = Vector3
+                    --print(self.targetVehicleRigidbody.velocity)
+                    self.interceptPointY = self:FirstOrderIntercept(self.rotateableTurret.transform.position,
+                        self.currentVehicleVel, self.projectileSpeed, lookPos1, self.targetVehicleRigidbody.velocity)
+                    local calcTraj1 = self:CalculateTrajectory(
+                        Vector3.Distance(self.rotateableTurret.transform.position,
+                            self.currentTarget.activeVehicle.gameObject.transform.position), self.projectileSpeed)
+                    if calcTraj1 ~= 0 then
+                        local trajectoryHeight = Mathf.Tan(calcTraj1 * Mathf.Deg2Rad) *
+                            Vector3.Distance(self.rotateableTurret.transform.position,
+                                self.currentTarget.activeVehicle.transform.position)
+                        self.interceptPointY = Vector3(self.interceptPointY.x, self.interceptPointY.y + trajectoryHeight,
+                            self.interceptPointY.z)
+                    end
+                    local rotation1 = Quaternion.LookRotation(self.interceptPointY)
+                    rotation1 = Quaternion.Euler(Vector3(0, rotation1.eulerAngles.y, 0) +
+                        Vector3(self.rotationOffsetTurretBase[1], self.rotationOffsetTurretBase[2],
+                            self.rotationOffsetTurretBase[3])) -- https:--answers.unity.com/questions/127765/how-to-restrict-quaternionslerp-to-the-y-axis.html
+                    self.rotateableTurret.transform.rotation = Quaternion.Slerp(self.rotateableTurret.transform.rotation,
+                        rotation1, Time.deltaTime * self.turretBaseRotationSpeed)
+                    self.interceptPointX = self:FirstOrderIntercept(self.rotateableTurretGun.transform.position,
+                        self.currentVehicleVel, self.projectileSpeed, lookPos2, self.targetVehicleRigidbody.velocity)
+                    local calcTraj = self:CalculateTrajectory(
+                        Vector3.Distance(self.rotateableTurretGun.transform.position,
+                            self.currentTarget.activeVehicle.gameObject.transform.position), self.projectileSpeed)
+                    if calcTraj ~= 0 then
+                        local trajectoryHeight = Mathf.Tan(calcTraj * Mathf.Deg2Rad) *
+                            Vector3.Distance(self.rotateableTurretGun.transform.position,
+                                self.currentTarget.activeVehicle.gameObject.transform.position)
+                        self.interceptPointX = Vector3(self.interceptPointX.x, self.interceptPointX.y + trajectoryHeight,
+                            self.interceptPointX.z)
+                    end
+                    --Debug.DrawLine(self.rotateableTurretGun.transform.position, self.currentTarget.activeVehicle.transform.position, Color.red)
+                    --Debug.DrawLine(self.rotateableTurretGun.transform.position, self.currentTarget.activeVehicle.transform.position + self.interceptPointX , Color.yellow)
+                end
+                local rotation2 = Quaternion.LookRotation(self.interceptPointX)
+                local rotation3 = Quaternion.Euler(Vector3(rotation2.eulerAngles.x, 0, 0) +
+                    Vector3(self.rotationOffsetTurretGun[1], self.rotationOffsetTurretGun[2],
+                        self.rotationOffsetTurretGun
+                        [3]))
+                self.rotateableTurretGun.transform.localRotation = Quaternion.Slerp(
+                    self.rotateableTurretGun.transform.localRotation, rotation3, Time.deltaTime * self
+                    .turretGunRotationSpeed)
+            else
+                local rotation1 = Quaternion.LookRotation(lookPos1)
+                rotation1 = Quaternion.Euler(Vector3(0, rotation1.eulerAngles.y, 0) +
+                    Vector3(self.rotationOffsetTurretBase[1], self.rotationOffsetTurretBase[2],
+                        self.rotationOffsetTurretBase[3])) -- https:--answers.unity.com/questions/127765/how-to-restrict-quaternionslerp-to-the-y-axis.html
+                self.rotateableTurret.transform.rotation = Quaternion.Slerp(self.rotateableTurret.transform.rotation,
+                    rotation1, Time.deltaTime * self.turretBaseRotationSpeed)
+                local rotation2 = Quaternion.LookRotation(lookPos2)
+                local rotation3 = Quaternion.Euler(Vector3(rotation2.eulerAngles.x, 0, 0) +
+                    Vector3(self.rotationOffsetTurretGun[1], self.rotationOffsetTurretGun[2],
+                        self.rotationOffsetTurretGun
+                        [3]))
+                self.rotateableTurretGun.transform.localRotation = Quaternion.Slerp(
+                    self.rotateableTurretGun.transform.localRotation, rotation3, Time.deltaTime * self
+                    .turretGunRotationSpeed)
             end
-            print("doing sentry")
+            if raycast.point ~= nil then
+                local isinsightline = Vector3.Distance(raycast.point, self.currentTarget.transform.position)
+                if isinsightline > 20 then
+                    self.hasTarget = false
+                end
+            end
+        else
+            if self.doingSentry == false and self.isShooting == false then
+                self.doingSentry = true
+                self.script.StartCoroutine("searchingAnimation")
+                if self.GunMuzzle.GetComponentInChildren(AudioSource) ~= nil then
+                    --if not self.GunMuzzle.GetComponentInChildren(AudioSource).isPlaying then
+                    self.GunMuzzle.GetComponentInChildren(AudioSource).Stop()
+                    --end
+                end
+                print("doing sentry")
+                -- Debug.DrawLine(Player.actor.centerPosition, self.gameObject.transform.position, Color.red)
+            end
             -- Debug.DrawLine(Player.actor.centerPosition, self.gameObject.transform.position, Color.red)
+            --print(self.turnDeg)
+            if self.turnDeg ~= 0 then
+                --print("rot")
+                self.rotateableTurret.transform.localRotation = Quaternion.RotateTowards(
+                    self.rotateableTurret.transform.localRotation,
+                    Quaternion.Euler(Vector3(self.rotateableTurret.transform.localRotation.eulerAngles.x,
+                        self.rotateableTurret.transform.localRotation.eulerAngles.y + self.turnDeg,
+                        self.rotateableTurret.transform.localRotation.eulerAngles.z)), Time.deltaTime * 20)
+                --print("rotate1")
+            end
+            self.script.StartCoroutine("AcquireTarget")
         end
-        -- Debug.DrawLine(Player.actor.centerPosition, self.gameObject.transform.position, Color.red)
-        --print(self.turnDeg)
-        if self.turnDeg ~= 0 then
-            --print("rot")
-            self.rotateableTurret.transform.localRotation = Quaternion.RotateTowards(
-                self.rotateableTurret.transform.localRotation,
-                Quaternion.Euler(Vector3(self.rotateableTurret.transform.localRotation.eulerAngles.x,
-                    self.rotateableTurret.transform.localRotation.eulerAngles.y + self.turnDeg,
-                    self.rotateableTurret.transform.localRotation.eulerAngles.z)), Time.deltaTime * 20)
-            --print("rotate1")
-        end
-        self.script.StartCoroutine("AcquireTarget")
     end
 end
