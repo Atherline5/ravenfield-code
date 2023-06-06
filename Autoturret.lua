@@ -143,7 +143,7 @@ function AutoTurret:Shoot()
         coroutine.yield(WaitForSeconds(self.delayBetweenShots))
     end
     coroutine.yield(WaitForSeconds(self.WaitBetweenNewTargetAcquire))
-     self.isShooting = false
+    self.isShooting = false
     self.hasTarget = false
     self.currentTarget = nil
 end
@@ -172,18 +172,21 @@ function AutoTurret:AcquireTarget()
     actorsInRange = ActorManager.AliveActorsInRange(self.gameObject.transform.position, self.attackActorsInRange)
     -- end
     for i, y in ipairs(actorsInRange) do
-        if self.friendlyFire then
-            table.insert(tempArray, y)
-        end
-        if y.team ~= Player.actor.team then
-            table.insert(tempArray, y)
+        if self:HasClearLineOfSight(y) then
+            if self.friendlyFire then
+                table.insert(tempArray, y)
+            end
+            if y.team ~= Player.actor.team then
+                table.insert(tempArray, y)
+            end
         end
     end
     actorsInRange = tempArray
     --print("CALL")
     local target = self:GetClosestActor(actorsInRange)
+
     if target ~= nil and self.hasTarget == false then
-        --print("Acquiring target...")
+        print("Acquiring target...")
         self.hasTarget = true
         self.scriptVar.StartCoroutine(self:EradicateActor(target))
     end
@@ -201,11 +204,6 @@ end
 
 function AutoTurret:EradicateActor(target)
     return function()
-        if self.currentTarget ~= nil and self.currentTarget.gameObject == target.gameObject then
-            self.hasTarget = false
-            self.isShooting = false
-            return
-        end
         if target ~= nil then
             self.currentTarget = target
             if self.targetVehicles and target.activeVehicle ~= nil then
@@ -213,6 +211,7 @@ function AutoTurret:EradicateActor(target)
                 if self.targetVehicleRigidbody == nil then
                     self.hasTarget = false
                     self.isShooting = false
+                    --print("nohit")
                     return
                 end
             elseif not self.targetActors and target.activeVehicle == nil then
@@ -222,12 +221,14 @@ function AutoTurret:EradicateActor(target)
                 --print("Invalid target type")
             end
             if self.hasTarget then
+                --print("shoot")
                 self.script.StartCoroutine("Shoot")
             end
         else
             self.isShooting = false
             self.hasTarget = false
-            print("Target is already dead")
+            self.currentTarget = nil
+            --print("Target is already dead")
         end
     end
 end
@@ -241,23 +242,21 @@ function AutoTurret:tablelength(T)
 end
 
 function AutoTurret:HasClearLineOfSight(target)
-    -- Cast a ray from the turret to the target
-    local direction = target.transform.position - self.transform.position
-    local hitInfo = Physics.Raycast(self.transform.position, direction)
-    
-    -- Check if the ray hits any obstacles
-    if hitInfo.collider ~= nil then
-        -- A collider was hit, check if it's the target
-        if hitInfo.collider.gameObject == target.gameObject then
-            return true
-        else
-            return false
-        end
+    local startPosition = self.gameObject.transform.position
+    local endPosition = target.transform.position
+
+    local ray = Ray(startPosition, endPosition - startPosition)
+    local range = (endPosition - startPosition).magnitude
+
+    local hitInfo = Physics.Raycast(ray, range, RaycastTarget.Opaque)
+
+    if hitInfo ~= nil then
+        return false
     else
-        -- No collider was hit, line of sight is clear
         return true
     end
 end
+
 
 function AutoTurret:GetClosestActor(ActorsInRange)
     local bestTarget = null
@@ -285,7 +284,22 @@ function AutoTurret:FirstOrderIntercept(shooterPosition, shooterVelocity, shotSp
     local targetRelativePosition = targetPosition - shooterPosition
     local targetRelativeVelocity = targetVelocity - shooterVelocity
 
-    local t = self:FirstOrderInterceptTime(shotSpeed, targetRelativePosition, targetRelativeVelocity)
+    local sqrMagnitude = targetRelativeVelocity.sqrMagnitude
+    local t
+
+    if sqrMagnitude < 0.001 then
+        t = 0.0
+    else
+        t = self:FirstOrderInterceptTime(shotSpeed, targetRelativePosition, targetRelativeVelocity)
+
+        -- Adjust lead time for fast moving targets at close range
+        local distance = targetRelativePosition.magnitude
+        local speed = targetVelocity.magnitude
+        local closingSpeed = Vector3.Dot(targetRelativeVelocity, targetRelativePosition.normalized)
+        if closingSpeed < 0 and distance < 15 and speed > 10 then
+            t = t * Mathf.Clamp01((closingSpeed + 10) / 20)
+        end
+    end
 
     return targetPosition + t * targetVelocity
 end
@@ -296,18 +310,37 @@ function AutoTurret:FirstOrderInterceptTime(shotSpeed, targetRelativePosition, t
         return 0.0
     end
 
-    local targetToShooter = targetRelativePosition.magnitude
-    local timeToIntercept = targetToShooter / shotSpeed
+    local a = velocitySquared - shotSpeed * shotSpeed
 
-    -- Calculate the vertical displacement due to gravity
-    local gravity = Physics.gravity.y
-    local displacement = targetRelativePosition.y - targetRelativeVelocity.y * timeToIntercept
-    local gravityTime = self:EstimateTimeToHitGround(gravity, displacement)
+    -- Handle similar velocities
+    if (Mathf.Abs(a) < 0.001) then
+        local t = -Vector3.Dot(targetRelativePosition, targetRelativeVelocity) / velocitySquared
+        return Mathf.Max(t, 0.0)
+    end
 
-    -- Adjust the time to intercept based on gravity
-    timeToIntercept = timeToIntercept + gravityTime
+    local b = 2 * Vector3.Dot(targetRelativeVelocity, targetRelativePosition)
+    local c = targetRelativePosition.sqrMagnitude
+    local determinant = b * b - 4 * a * c
 
-    return timeToIntercept
+    if (determinant > 0.0) then -- Determinant > 0 two intercept paths (most common)
+        local t1 = (-b + Mathf.Sqrt(determinant)) / (2 * a)
+        local t2 = (-b - Mathf.Sqrt(determinant)) / (2 * a)
+        if (t1 > 0.0) then
+            if (t2 > 0.0) then
+                return Mathf.Min(t1, t2) -- Both are positive
+            else
+                return t1                -- Only t1 is positive
+            end
+        else
+            return Mathf.Max(t2, 0.0) -- Don't shoot back in time
+        end
+    else
+        if determinant < 0.0 then
+            return 0.0
+        else                                    -- Determinant = 0 one intercept path, pretty much never happens
+            return Mathf.Max(-b / (2 * a), 0.0) -- Don't shoot back in time
+        end
+    end
 end
 
 function AutoTurret:EstimateTimeToHitGround(gravity, displacement)
@@ -367,11 +400,11 @@ function AutoTurret:Update()
     --print("-----")
     --print(self.hasTarget)
     --print(self.isShooting)
-    if self.TurretStarted then
-        if self.hasTarget and not self.gameObject.GetComponent(Vehicle).isBurning and self.currentTarget ~= nil then
+    if self.TurretStarted and not GameManager.isPaused then
+        if self.hasTarget and self.currentTarget ~= nil then
             self.doingSentry = false
             -- CHECK IF ACTOR IS VISABLE
-            -- print("lead")
+            --print("lead")
             local lookPos1
             local lookPos2
             local tar = self.currentTarget.transform.position - self.GunMuzzle.transform.position
@@ -413,9 +446,9 @@ function AutoTurret:Update()
                     if calcTraj1 ~= 0 then
                         local trajectoryHeight = Mathf.Tan(calcTraj1 * Mathf.Deg2Rad) *
                             Vector3.Distance(self.rotateableTurret.transform.position, self.currentTarget.position)
+                            --PARACUTE
                         if self.currentTarget.isParachuteDeployed then
-                            trajectoryHeight = Vector3.Distance(self.rotateableTurretGun.transform.position,
-                                self.currentTarget.position)
+                            trajectoryHeight = trajectoryHeight * 0.6
                         end
                         self.interceptPointY = Vector3(self.interceptPointY.x, self.interceptPointY.y + trajectoryHeight,
                             self.interceptPointY.z)
@@ -427,16 +460,14 @@ function AutoTurret:Update()
                             self.rotationOffsetTurretBase[3])) -- https:--answers.unity.com/questions/127765/how-to-restrict-quaternionslerp-to-the-y-axis.html
                     self.rotateableTurret.transform.rotation = Quaternion.Slerp(self.rotateableTurret.transform.rotation,
                         rotation1, Time.deltaTime * self.turretBaseRotationSpeed)
-                    self.interceptPointX = self:FirstOrderIntercept(self.rotateableTurretGun.transform.position,
-                        Vector3.zero, self.projectileSpeed, lookPos2, self.currentTarget.velocity)
-                    local calcTraj2 = self:CalculateTrajectory(
-                        Vector3.Distance(self.rotateableTurretGun.transform.position, self.currentTarget.position),
-                        self.projectileSpeed)
+                    self.interceptPointX = self:FirstOrderIntercept(self.rotateableTurretGun.transform.position,Vector3.zero, self.projectileSpeed, lookPos2, self.currentTarget.velocity)
+                    local calcTraj2 = self:CalculateTrajectory(Vector3.Distance(self.rotateableTurretGun.transform.position, self.currentTarget.position),self.projectileSpeed)
                     if calcTraj2 ~= 0 then
-                        local trajectoryHeight = Mathf.Tan(calcTraj2 * Mathf.Deg2Rad) *
-                            Vector3.Distance(self.rotateableTurretGun.transform.position, self.currentTarget.position)
-                        self.interceptPointX = Vector3(self.interceptPointX.x, self.interceptPointX.y + trajectoryHeight,
-                            self.interceptPointX.z)
+                        local trajectoryHeight = Mathf.Tan(calcTraj2 * Mathf.Deg2Rad) * Vector3.Distance(self.rotateableTurretGun.transform.position, self.currentTarget.position)
+                        self.interceptPointX = Vector3(self.interceptPointX.x, self.interceptPointX.y + trajectoryHeight,self.interceptPointX.z)
+                        self.interceptPointX = self.interceptPointX 
+                        --print("\\\\")
+                        --print(self.interceptPointX)
                     end
                 elseif self.targetVehicles == true and self.currentTarget.activeVehicle ~= nil and self.targetVehicleRigidbody ~= nil then
                     --[[print("vech2")
@@ -454,11 +485,13 @@ function AutoTurret:Update()
                         Vector3.Distance(self.rotateableTurret.transform.position,
                             self.currentTarget.activeVehicle.gameObject.transform.position), self.projectileSpeed)
                     if calcTraj1 ~= 0 then
-                        local trajectoryHeight = Mathf.Tan(calcTraj1 * Mathf.Deg2Rad) *
-                            Vector3.Distance(self.rotateableTurret.transform.position,
-                                self.currentTarget.activeVehicle.transform.position)
-                        self.interceptPointY = Vector3(self.interceptPointY.x, self.interceptPointY.y + trajectoryHeight,
-                            self.interceptPointY.z)
+                        local trajectoryHeight = Mathf.Tan(calcTraj1 * Mathf.Deg2Rad) * Vector3.Distance(self.rotateableTurret.transform.position,self.currentTarget.activeVehicle.transform.position)
+                        -- Adjust trajectory height only if target is moving towards the turret
+                        local targetDirection = (self.currentTarget.activeVehicle.transform.position - self.rotateableTurret.transform.position).normalized
+                        local dotProduct = Vector3.Dot(targetDirection, self.targetVehicleRigidbody.velocity.normalized)
+                        if dotProduct >= 0 then
+                            self.interceptPointY = Vector3(self.interceptPointY.x, self.interceptPointY.y + trajectoryHeight,self.interceptPointY.z)
+                        end
                     end
                     local rotation1 = Quaternion.LookRotation(self.interceptPointY)
                     rotation1 = Quaternion.Euler(Vector3(0, rotation1.eulerAngles.y, 0) +
@@ -477,33 +510,25 @@ function AutoTurret:Update()
                                 self.currentTarget.activeVehicle.gameObject.transform.position)
                         self.interceptPointX = Vector3(self.interceptPointX.x, self.interceptPointX.y + trajectoryHeight,
                             self.interceptPointX.z)
+                            --print("/////")
+                           --print(self.interceptPointX)
                     end
-                    Debug.DrawLine(self.rotateableTurretGun.transform.position, self.currentTarget.activeVehicle.transform.position, Color.red)
-                    Debug.DrawLine(self.rotateableTurretGun.transform.position, self.currentTarget.activeVehicle.transform.position + self.interceptPointX , Color.yellow)
+                    --Debug.DrawLine(self.rotateableTurretGun.transform.position, self.currentTarget.activeVehicle.transform.position, Color.red)
+                   --Debug.DrawLine(self.rotateableTurretGun.transform.position, self.currentTarget.activeVehicle.transform.position + self.interceptPointX , Color.yellow)
                 end
+                print("self.interceptPointX:", self.interceptPointX)
                 local rotation2 = Quaternion.LookRotation(self.interceptPointX)
-                local rotation3 = Quaternion.Euler(Vector3(rotation2.eulerAngles.x, 0, 0) +
-                    Vector3(self.rotationOffsetTurretGun[1], self.rotationOffsetTurretGun[2],
-                        self.rotationOffsetTurretGun
-                        [3]))
+                local rotation3 = Quaternion.Euler(Vector3(rotation2.eulerAngles.x, 0, 0) +Vector3(self.rotationOffsetTurretGun[1], self.rotationOffsetTurretGun[2],self.rotationOffsetTurretGun[3]))
                 self.rotateableTurretGun.transform.localRotation = Quaternion.Slerp(
-                    self.rotateableTurretGun.transform.localRotation, rotation3, Time.deltaTime * self
-                    .turretGunRotationSpeed)
+                    self.rotateableTurretGun.transform.localRotation, rotation3, Time.deltaTime * self.turretGunRotationSpeed)
             else
                 local rotation1 = Quaternion.LookRotation(lookPos1)
-                rotation1 = Quaternion.Euler(Vector3(0, rotation1.eulerAngles.y, 0) +
-                    Vector3(self.rotationOffsetTurretBase[1], self.rotationOffsetTurretBase[2],
-                        self.rotationOffsetTurretBase[3])) -- https:--answers.unity.com/questions/127765/how-to-restrict-quaternionslerp-to-the-y-axis.html
+                rotation1 = Quaternion.Euler(Vector3(0, rotation1.eulerAngles.y, 0) +Vector3(self.rotationOffsetTurretBase[1], self.rotationOffsetTurretBase[2],self.rotationOffsetTurretBase[3])) -- https:--answers.unity.com/questions/127765/how-to-restrict-quaternionslerp-to-the-y-axis.html
                 self.rotateableTurret.transform.rotation = Quaternion.Slerp(self.rotateableTurret.transform.rotation,
                     rotation1, Time.deltaTime * self.turretBaseRotationSpeed)
                 local rotation2 = Quaternion.LookRotation(lookPos2)
-                local rotation3 = Quaternion.Euler(Vector3(rotation2.eulerAngles.x, 0, 0) +
-                    Vector3(self.rotationOffsetTurretGun[1], self.rotationOffsetTurretGun[2],
-                        self.rotationOffsetTurretGun
-                        [3]))
-                self.rotateableTurretGun.transform.localRotation = Quaternion.Slerp(
-                    self.rotateableTurretGun.transform.localRotation, rotation3, Time.deltaTime * self
-                    .turretGunRotationSpeed)
+                local rotation3 = Quaternion.Euler(Vector3(rotation2.eulerAngles.x, 0, 0) +Vector3(self.rotationOffsetTurretGun[1], self.rotationOffsetTurretGun[2],self.rotationOffsetTurretGun [3]))
+                self.rotateableTurretGun.transform.localRotation = Quaternion.Slerp(self.rotateableTurretGun.transform.localRotation, rotation3, Time.deltaTime * self.turretGunRotationSpeed)
             end
             if raycast.point ~= nil then
                 local isinsightline = Vector3.Distance(raycast.point, self.currentTarget.transform.position)
@@ -512,29 +537,33 @@ function AutoTurret:Update()
                 end
             end
         else
-            if self.doingSentry == false and not self.hasTarget and self.currentTarget == nil then
-                self.doingSentry = true
-                self.script.StartCoroutine("searchingAnimation")
-                if self.GunMuzzle.GetComponentInChildren(AudioSource) ~= nil then
-                    --if not self.GunMuzzle.GetComponentInChildren(AudioSource).isPlaying then
-                    self.GunMuzzle.GetComponentInChildren(AudioSource).Stop()
-                    --end
+            if self.hasTarget == false and self.currentTarget == nil then
+                if self.doingSentry == false then
+                    self.doingSentry = true
+                    self.script.StartCoroutine("searchingAnimation")
+                    if self.GunMuzzle.GetComponentInChildren(AudioSource) ~= nil then
+                        --if not self.GunMuzzle.GetComponentInChildren(AudioSource).isPlaying then
+                        self.GunMuzzle.GetComponentInChildren(AudioSource).Stop()
+                        --end
+                    end
+                    print("doing sentry")
+                    -- Debug.DrawLine(Player.actor.centerPosition, self.gameObject.transform.position, Color.red)
                 end
-                print("doing sentry")
                 -- Debug.DrawLine(Player.actor.centerPosition, self.gameObject.transform.position, Color.red)
+                --print(self.turnDeg)
+                self.script.StartCoroutine("AcquireTarget")
             end
-            -- Debug.DrawLine(Player.actor.centerPosition, self.gameObject.transform.position, Color.red)
-            --print(self.turnDeg)
-            if self.turnDeg ~= 0 then
-                --print("rot")
-                self.rotateableTurret.transform.localRotation = Quaternion.RotateTowards(
-                    self.rotateableTurret.transform.localRotation,
-                    Quaternion.Euler(Vector3(self.rotateableTurret.transform.localRotation.eulerAngles.x,
-                        self.rotateableTurret.transform.localRotation.eulerAngles.y + self.turnDeg,
-                        self.rotateableTurret.transform.localRotation.eulerAngles.z)), Time.deltaTime * 20)
-                --print("rotate1")
+            if self.doingSentry then
+                if self.turnDeg ~= 0 then
+                    --print("rot")
+                    self.rotateableTurret.transform.localRotation = Quaternion.RotateTowards(
+                        self.rotateableTurret.transform.localRotation,
+                        Quaternion.Euler(Vector3(self.rotateableTurret.transform.localRotation.eulerAngles.x,
+                            self.rotateableTurret.transform.localRotation.eulerAngles.y + self.turnDeg,
+                            self.rotateableTurret.transform.localRotation.eulerAngles.z)), Time.deltaTime * 20)
+                    --print("rotate1")
+                end
             end
-            self.script.StartCoroutine("AcquireTarget")
         end
     end
 end
