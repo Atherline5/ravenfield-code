@@ -1,4 +1,4 @@
--- heavy modded
+-- Forked
 behaviour("AutoTurret")
 
 function AutoTurret:Start()
@@ -71,7 +71,6 @@ function AutoTurret:OnActorDeath(actor)
 end
 
 function AutoTurret:turretstart()
-    
     if self.rotateableTurretGun.transform.localRotation.eulerAngles.x > 90 then
         self.rotateableTurretGun.transform.localRotation = Quaternion.RotateTowards(
             self.rotateableTurretGun.transform.localRotation,
@@ -82,7 +81,6 @@ function AutoTurret:turretstart()
     else
         self.currentTarget = nil
         self.TurretStarted = true
-        return
     end
 end
 
@@ -186,7 +184,7 @@ function AutoTurret:AcquireTarget()
     local target = self:GetClosestActor(actorsInRange)
 
     if target ~= nil and self.hasTarget == false then
-        print("Acquiring target...")
+        --print("Acquiring target...")
         self.hasTarget = true
         self.scriptVar.StartCoroutine(self:EradicateActor(target))
     end
@@ -445,11 +443,13 @@ function AutoTurret:Update()
                         (self.projectileSpeed))
                     if calcTraj1 ~= 0 then
                         local trajectoryHeight = Mathf.Tan(calcTraj1 * Mathf.Deg2Rad) *
-                            Vector3.Distance(self.rotateableTurret.transform.position, self.currentTarget.position)
+                            Vector3.Distance(self.rotateableTurret.transform.position, self.currentTarget.position) /8
                             --PARACUTE
                         if self.currentTarget.isParachuteDeployed then
-                            trajectoryHeight = trajectoryHeight * 0.6
+                            trajectoryHeight = trajectoryHeight * -0.5
+                            print("para")
                         end
+                        print("anti person shell")
                         self.interceptPointY = Vector3(self.interceptPointY.x, self.interceptPointY.y + trajectoryHeight,
                             self.interceptPointY.z)
                     end
@@ -461,13 +461,13 @@ function AutoTurret:Update()
                     self.rotateableTurret.transform.rotation = Quaternion.Slerp(self.rotateableTurret.transform.rotation,
                         rotation1, Time.deltaTime * self.turretBaseRotationSpeed)
                     self.interceptPointX = self:FirstOrderIntercept(self.rotateableTurretGun.transform.position,Vector3.zero, self.projectileSpeed, lookPos2, self.currentTarget.velocity)
+                    --print("self.interceptPointX:",self.interceptPointX)
                     local calcTraj2 = self:CalculateTrajectory(Vector3.Distance(self.rotateableTurretGun.transform.position, self.currentTarget.position),self.projectileSpeed)
                     if calcTraj2 ~= 0 then
                         local trajectoryHeight = Mathf.Tan(calcTraj2 * Mathf.Deg2Rad) * Vector3.Distance(self.rotateableTurretGun.transform.position, self.currentTarget.position)
                         self.interceptPointX = Vector3(self.interceptPointX.x, self.interceptPointX.y + trajectoryHeight,self.interceptPointX.z)
-                        self.interceptPointX = self.interceptPointX 
                         --print("\\\\")
-                        --print(self.interceptPointX)
+                        --print("self.interceptPointX calc proj 2:",self.interceptPointX)
                     end
                 elseif self.targetVehicles == true and self.currentTarget.activeVehicle ~= nil and self.targetVehicleRigidbody ~= nil then
                     --[[print("vech2")
@@ -512,15 +512,16 @@ function AutoTurret:Update()
                             self.interceptPointX.z)
                             --print("/////")
                            --print(self.interceptPointX)
-                    end
+                   end
                     --Debug.DrawLine(self.rotateableTurretGun.transform.position, self.currentTarget.activeVehicle.transform.position, Color.red)
                    --Debug.DrawLine(self.rotateableTurretGun.transform.position, self.currentTarget.activeVehicle.transform.position + self.interceptPointX , Color.yellow)
                 end
-                print("self.interceptPointX:", self.interceptPointX)
-                local rotation2 = Quaternion.LookRotation(self.interceptPointX)
-                local rotation3 = Quaternion.Euler(Vector3(rotation2.eulerAngles.x, 0, 0) +Vector3(self.rotationOffsetTurretGun[1], self.rotationOffsetTurretGun[2],self.rotationOffsetTurretGun[3]))
-                self.rotateableTurretGun.transform.localRotation = Quaternion.Slerp(
-                    self.rotateableTurretGun.transform.localRotation, rotation3, Time.deltaTime * self.turretGunRotationSpeed)
+                --print("self.interceptPointX FIN:", not  self.interceptPointX == nil )
+                if not self.interceptPointX == nil then
+                    local rotation2 = Quaternion.LookRotation(Vector3(self.interceptPointX))
+                    local rotation3 = Quaternion.Euler(Vector3(rotation2.eulerAngles.x, 0, 0) +Vector3(self.rotationOffsetTurretGun[1], self.rotationOffsetTurretGun[2],self.rotationOffsetTurretGun[3]))
+                    self.rotateableTurretGun.transform.localRotation = Quaternion.Slerp(self.rotateableTurretGun.transform.localRotation, rotation3, Time.deltaTime * self.turretGunRotationSpeed)
+                end
             else
                 local rotation1 = Quaternion.LookRotation(lookPos1)
                 rotation1 = Quaternion.Euler(Vector3(0, rotation1.eulerAngles.y, 0) +Vector3(self.rotationOffsetTurretBase[1], self.rotationOffsetTurretBase[2],self.rotationOffsetTurretBase[3])) -- https:--answers.unity.com/questions/127765/how-to-restrict-quaternionslerp-to-the-y-axis.html
@@ -546,7 +547,7 @@ function AutoTurret:Update()
                         self.GunMuzzle.GetComponentInChildren(AudioSource).Stop()
                         --end
                     end
-                    print("doing sentry")
+                    --print("doing sentry")
                     -- Debug.DrawLine(Player.actor.centerPosition, self.gameObject.transform.position, Color.red)
                 end
                 -- Debug.DrawLine(Player.actor.centerPosition, self.gameObject.transform.position, Color.red)
