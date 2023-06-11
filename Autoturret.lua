@@ -443,17 +443,14 @@ function AutoTurret:Update()
                         (self.projectileSpeed))
                     if calcTraj1 ~= 0 then
                         local trajectoryHeight = Mathf.Tan(calcTraj1 * Mathf.Deg2Rad) *
-                            Vector3.Distance(self.rotateableTurret.transform.position, self.currentTarget.position) /8
-                            --PARACUTE
+                            Vector3.Distance(self.rotateableTurret.transform.position, self.currentTarget.position)
                         if self.currentTarget.isParachuteDeployed then
-                            trajectoryHeight = trajectoryHeight * -0.5
-                            print("para")
+                            trajectoryHeight = trajectoryHeight * 0.5  -- Adjust the trajectory height for parachuting actors
+                        else
+                            trajectoryHeight = 0
                         end
-                        print("anti person shell")
-                        self.interceptPointY = Vector3(self.interceptPointY.x, self.interceptPointY.y + trajectoryHeight,
-                            self.interceptPointY.z)
+                        self.interceptPointY = Vector3(self.interceptPointY.x, self.interceptPointY.y + trajectoryHeight, self.interceptPointY.z)
                     end
-
                     local rotation1 = Quaternion.LookRotation(self.interceptPointY)
                     rotation1 = Quaternion.Euler(Vector3(0, rotation1.eulerAngles.y, 0) +
                         Vector3(self.rotationOffsetTurretBase[1], self.rotationOffsetTurretBase[2],
