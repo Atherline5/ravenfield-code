@@ -118,4 +118,4 @@ else:
         io_scene_fbx.export_fbx.save(FakeOp(), bpy.context, filepath=outfile, **kwargs)
     # HQ normals are not supported in the current exporter
 
-print("Finished blender to FBX conversion (Original Modified Export file by [ASH KATCHAP] Edited by [ATHERLINE] for Ravenfield Unity 2020" + outfile)
+#("Finished blender to FBX conversion (Original Modified Export file by [ASH KATCHAP] Edited by [ATHERLINE] for Ravenfield Unity 2020" + outfile)
