@@ -1,0 +1,46 @@
+function HaloActorShield:onTakeDamage(act,scorce,info)
+	if act == Player.actor then
+		self.hittime = Time.time
+		self.justhit = true
+		if self.repart.GetComponent(ParticleSystem).isPlaying then
+			self.repart.GetComponent(ParticleSystem).Stop()
+		end
+		CurrentEvent.Consume()
+		local vect = PlayerCamera.activeCamera.transform.worldToLocalMatrix.MultiplyVector(-info.direction)
+		self.ang = Mathf.Atan2(vect.z, vect.x) * 57.29578 - 90
+		self.script.StartCoroutine("indecator")
+		if self.shieldhealth > 0 then
+			self.shieldhealth = self.shieldhealth - info.healthDamage
+			self.ossnd.GetComponent(AudioSource).Stop()
+			self.repart.GetComponent(AudioSource).Stop()
+			self.damgpart.GetComponent(ParticleSystem).Play()
+			Player.actor.AddAccessory(self.targets.actshe, self.colarr)
+			if info.healthDamage >= self.shieldhealth then
+				info.healthDamage = 0
+				self.shieldhealth = 0
+			end
+		else
+			if self.hasover then
+				if self.overshield > 0 then
+					self.overshield = self.overshield - 1
+					self.shieldhealth = self.chargehealth
+				end
+				if self.overshield <= 0 then
+					self.hasover = false
+					self.OSH.SetActive(false)
+					if self.healthbartype == 0 then
+						self.OSHRl.SetActive(false)
+					end
+				end
+			else
+				info.healthDamage = info.healthDamage - (info.healthDamage * self.dmgdev)
+				info.balanceDamage = info.balanceDamage - (info.balanceDamage * self.dmgdev)
+				act.health = act.health - info.healthDamage
+				act.balance = act.balance - info.balanceDamage
+				act.RemoveAccessories()
+				if act.health <= 0 then
+					act.Kill(scorce)
+				end
+			end
+		end
+		print("Dam after: " .. info.healthDamage .. " shield health: " .. self.shieldhealth)
